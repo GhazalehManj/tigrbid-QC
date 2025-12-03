@@ -50,9 +50,6 @@ participant_labels = args.participant_labels
 fmri_dir = args.fmri_dir
 out_dir = args.out_dir
 
-# fmri_dir = "/projects/galinejad/SCanD_CAMH_RTMSWM/share/fmriprep/23.2.3"
-# participant_labels = "/projects/ttan/RTMSWM/participants.tsv"
-# out_dir = "/projects/ttan/tigrbid-QC/outputs/RTMSWM_QC/"
 participants_df = pd.read_csv(participant_labels, delimiter="\t")
 
 st.title("fMRIPrep QC")
@@ -221,7 +218,7 @@ total_rows, current_batch = get_current_batch(
 # out_dir = "/projects/ttan/tigrbid-QC/outputs"
 now = datetime.now()
 # timestamp = now.strftime("%Y%m%d")  # e.g., 20250917
-out_file = Path(out_dir) / f"fMRIPrep_QC.csv"
+out_file = Path(out_dir) / f"fMRIPrep_QC_status.csv"
 
 # --- Decorator ---
 def global_fallback(func):
@@ -353,6 +350,7 @@ def display_svg_group(
             run_id=run,
             metric=metric_name
         )
+
         qc_choice = st.radio(
             f"{qc_name} QC:",
             options,
@@ -407,15 +405,7 @@ for _, row in current_batch.iterrows():
     for (ses, task, run), metrics_list in sorted(per_run_bundles.items()):
         st.markdown(f"### Session: {ses} | Task: {task} | Run: {run}")
         run_metrics = []
-        for svg_list, qc_name, metric_name in metrics_list:
-            stored_val = get_val(
-            sub_id=f"sub-{sub_id}",
-            ses_id=ses,
-            task_id=task,
-            run_id=run,
-            metric=metric_name
-        )
-            
+        for svg_list, qc_name, metric_name in metrics_list:     
             display_svg_group(
                 svg_list=svg_list,
                 sub_id=sub_id,
