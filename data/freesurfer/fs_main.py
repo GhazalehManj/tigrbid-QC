@@ -10,8 +10,8 @@ from pathlib import Path
 import pandas as pd
 import streamlit as st
 from models import MetricQC, QCRecord
-from session_persistance import load_session_state, save_session_state
-from streamlit_scroll_to_top import scroll_to_here
+# from session_persistance import load_session_state, save_session_state
+# from streamlit_scroll_to_top import scroll_to_here
 
 # Debug: show keys on every rerun
 # st.write("Session state before initialized:", st.session_state)
