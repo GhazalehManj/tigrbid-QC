@@ -61,12 +61,11 @@ out_dir = args.out_dir
 
 # fs_metric = "/projects/ttan/RTMSWM/for_jackie/freesurfer_group/euler.tsv"
 # fs_metric = "/projects/galinejad/SCanD_CAMH_SPINS/share/freesurfer_group/euler.tsv"
-fs_metric = "/projects/ttan/CDIA/data/local/derivatives/euler.tsv"
-fmri_dir = "/projects/ttan/CDIA/data/local/derivatives/fmriprep/23.2.3"
-participant_labels = "/projects/nmirza/CDiA/participants.tsv"
-# participant_labels = "/projects/ttan/RTMSWM/SPINS_participants.tsv"
-# # fmri_dir = "/projects/ttan/RTMSWM/for_jackie/fmriprep/23.2.3"
-# out_dir = "/projects/ttan/RTMSWM/freesurfer_QC"
+# fs_metric = "/projects/ttan/CDIA/data/local/derivatives/euler.tsv"
+# fs_metric = "/projects/ttan/TAY/derivatives/freesurfer/7.4.1/00_group2_stats_tables/euler.tsv"
+# participant_labels = "/projects/ttan/tigrbid-QC/TAY_participants.tsv"
+# out_dir = "/projects/ttan/tigrbid-QC/outputs/TAY_QC/"
+
 participants_df = pd.read_csv(participant_labels, delimiter="\t")
 
 def get_fs_metrics(euler_path):
@@ -74,24 +73,22 @@ def get_fs_metrics(euler_path):
         euler_path,
         sep="\t",
     )
-    all_subjects = fs_metrics_df["subject"].tolist()
+    # Detect whether the dataset has ANY sessions
+    is_longitudinal = fs_metrics_df["subject"].str.contains("ses-").any()
 
-    # Detect whether the dataset is longutidinal study
-    is_longitudinal = any("ses-" in s for s in all_subjects)
     if is_longitudinal:
-        # Get all the session labels present in the dataset
-        all_sessions = sorted(set(re.findall(r"(ses-[\w-]+)", " ".join(all_subjects))))
-        fs_metrics_df_filtered = fs_metrics_df[
+        fs_metrics_df = fs_metrics_df[
             fs_metrics_df["subject"].str.contains("ses-")
-        ]
-        return fs_metrics_df_filtered
+        ].copy()
+        fs_metrics_df[["participant_id", "session_id"]] = \
+            fs_metrics_df["subject"].str.split("_", expand=True)
     else:
-        return fs_metrics_df
-
+        fs_metrics_df = fs_metrics_df.copy()
+        fs_metrics_df["participant_id"] = fs_metrics_df["subject"]
+        fs_metrics_df["session_id"] = "cross-sectional"
+    return fs_metrics_df
 
 fs_metrics_df = get_fs_metrics(fs_metric)
-fs_metrics_df[["participant_id", "session_id"]] = \
-    fs_metrics_df["subject"].str.split("_", expand=True)
 
 def scroll():
     st.session_state.scroll_to_top = True
@@ -226,11 +223,13 @@ def get_metrics_from_csv(qc_results: Path, metrics_to_load=None):
 
     def get_val(sub_id, ses_id, metric):
         key_sub = sub_id if sub_id.startswith("sub-") else f"sub-{sub_id}"
-        key_ses = ses_id if ses_id.startswith("ses-") else f"ses-{ses_id}"
+        if ses_id == "cross-sectional":
+            key_ses = "cross-sectional"
+        else:
+            key_ses = ses_id if ses_id.startswith("ses-") else f"ses-{ses_id}"
         return data_dict.get((key_sub, key_ses), {}).get(metric, None)
 
     return metrics_to_load, get_val
-
 
 # def clear_old_qc_state():
 #     for key in list(st.session_state.keys()):
@@ -249,7 +248,7 @@ merged_batch = current_batch.merge(
     on="participant_id",
     how="left"
 )
-merged_batch.columns
+
 # Save to CSV
 # now = datetime.now()
 # timestamp = now.strftime("%Y%m%d")  # e.g., 20250917
@@ -267,7 +266,12 @@ for _, row in merged_batch.iterrows():
     if pd.isna(ses_id):
         st.warning(f"No FreeSurfer metrics found for {pid}")
         continue
-    ses_num = ses_id.split("-")[1]
+
+    if ses_id.startswith("ses-"):
+        ses_num = ses_id.split("-")[1]
+    else:
+        ses_num = ses_id
+    # ses_num = ses_id.split("-")[1]
     run_id = None
 
     # subj = row["subject"]
