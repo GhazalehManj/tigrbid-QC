@@ -61,6 +61,9 @@ out_dir = args.out_dir
 
 # fs_metric = "/projects/ttan/RTMSWM/for_jackie/freesurfer_group/euler.tsv"
 # fs_metric = "/projects/galinejad/SCanD_CAMH_SPINS/share/freesurfer_group/euler.tsv"
+fs_metric = "/projects/ttan/CDIA/data/local/derivatives/euler.tsv"
+fmri_dir = "/projects/ttan/CDIA/data/local/derivatives/fmriprep/23.2.3"
+participant_labels = "/projects/nmirza/CDiA/participants.tsv"
 # participant_labels = "/projects/ttan/RTMSWM/SPINS_participants.tsv"
 # # fmri_dir = "/projects/ttan/RTMSWM/for_jackie/fmriprep/23.2.3"
 # out_dir = "/projects/ttan/RTMSWM/freesurfer_QC"
@@ -246,7 +249,7 @@ merged_batch = current_batch.merge(
     on="participant_id",
     how="left"
 )
-
+merged_batch.columns
 # Save to CSV
 # now = datetime.now()
 # timestamp = now.strftime("%Y%m%d")  # e.g., 20250917
@@ -261,6 +264,9 @@ for _, row in merged_batch.iterrows():
     pid = row["participant_id"]
     sub_id = pid.split("-")[1]
     ses_id = row["session_id"]
+    if pd.isna(ses_id):
+        st.warning(f"No FreeSurfer metrics found for {pid}")
+        continue
     ses_num = ses_id.split("-")[1]
     run_id = None
 
