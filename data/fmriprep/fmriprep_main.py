@@ -50,6 +50,10 @@ participant_labels = args.participant_labels
 fmri_dir = args.fmri_dir
 out_dir = args.out_dir
 
+
+# fmri_dir = "/projects/amiah/BHRC_wave3/wave3_share_dec172025/share/fmriprep/23.2.3"
+# participant_labels = "/projects/amiah/BHRC_wave3/10_participants.tsv"
+# out_dir = "/projects/ttan/tigrbids-QC/outputs/BHRC_wave3_QC"
 participants_df = pd.read_csv(participant_labels, delimiter="\t")
 
 st.title("fMRIPrep QC")
@@ -161,6 +165,12 @@ def collect_qc_svgs(fmri_dir: str, sub_id: str, pattern: str) -> List[Path]:
     search_pattern = f"sub-{sub_id}*{pattern}.svg"
     svg_paths = sorted(Path(p) for p in glob(str(base / search_pattern)))
 
+    if not svg_paths:
+        st.warning(f" No {pattern} SVGs found for subject {sub_id}")
+        return {
+        "type": "perrun",
+        "data": {}
+    }
     # Try extracting entities to see if any file contains session/run/task
     has_session = False
     has_run = False
