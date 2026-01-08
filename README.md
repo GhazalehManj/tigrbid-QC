@@ -1,11 +1,13 @@
 # Instruction to run streamlit app for Kimel 
-1. Create python environment
+1. Create python environment and cloning the tigrbid-QC repo
 ```bash
 cd /projects/ttan
 module load python/3.10.7
 python -m venv tigrbid_QC_env
 source tigrbid_QC_env/bin/activate
 pip install streamlit==1.49.1 pandas==2.3.2 pydantic==2.11.7
+
+git clone https://github.com/ThomasHMAC/tigrbid-QC.git
 ```
 
 2. Run freesurfer QC dashboard
