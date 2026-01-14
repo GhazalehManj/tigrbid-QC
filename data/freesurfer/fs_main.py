@@ -59,13 +59,6 @@ participant_labels = args.participant_labels
 fmri_dir = args.fmri_dir
 out_dir = args.out_dir
 
-# fs_metric = "/projects/ttan/RTMSWM/for_jackie/freesurfer_group/euler.tsv"
-# fs_metric = "/projects/galinejad/SCanD_CAMH_SPINS/share/freesurfer_group/euler.tsv"
-# fs_metric = "/projects/ttan/CDIA/data/local/derivatives/euler.tsv"
-# fs_metric = "/projects/ttan/TAY/derivatives/freesurfer/7.4.1/00_group2_stats_tables/euler.tsv"
-# participant_labels = "/projects/ttan/tigrbid-QC/TAY_participants.tsv"
-# out_dir = "/projects/ttan/tigrbid-QC/outputs/TAY_QC/"
-
 participants_df = pd.read_csv(participant_labels, delimiter="\t")
 
 def get_fs_metrics(euler_path):
@@ -159,7 +152,7 @@ def save_qc_results_to_csv(out_file, qc_records):
             "session": rec.session_id,
             "run": rec.run_id,
             "pipeline": rec.pipeline,
-            "recon_timestamp": rec.complete_timestamp,
+            "complete_timestamp": rec.complete_timestamp,
         }
 
         for m in rec.metrics:
@@ -197,7 +190,7 @@ def save_qc_results_to_csv(out_file, qc_records):
 
 def get_metrics_from_csv(qc_results: Path, metrics_to_load=None):
     if metrics_to_load is None:
-        metrics_to_load = ["surface_segmentation_qc", "require_rerun"]
+        metrics_to_load = ["surface_segmentation_qc", "require_rerun", "notes"]
     if qc_results.exists():
         df_existing = pd.read_csv(qc_results)
         # Keep only columns that actually exist
@@ -271,15 +264,7 @@ for _, row in merged_batch.iterrows():
         ses_num = ses_id.split("-")[1]
     else:
         ses_num = ses_id
-    # ses_num = ses_id.split("-")[1]
     run_id = None
-
-    # subj = row["subject"]
-    # parts = subj.split("_")
-    # sub_id = parts[0].split("-")[1]
-    # ses_id = parts[1] if len(parts) > 1 else "ses-01"
-    # ses_num = ses_id.split("-")[1] if "-" in ses_id else ses_id
-    # run_id = None
 
     # metrics per subject
     subject_metrics = []
@@ -385,8 +370,16 @@ for _, row in merged_batch.iterrows():
         final_qc = None
     else:
         final_qc = "FAIL" if require_rerun == "YES" else "PASS"
+
     # Notes
-    notes = st.text_input(f"***NOTES***", key=f"{sub_id}_{ses_id}_notes")
+    metric = "notes"
+    sub_note_str = get_val(f"sub-{sub_id}", ses_id, metric)
+    st.write(f"{sub_id} subject note currently: {sub_note_str}")
+    if pd.isna(sub_note_str):
+        notes = st.text_input(f"***NOTES***", key=f"{sub_id}_{ses_id}_notes")
+    else:
+        notes = st.text_input(f"***NOTES***", key=f"{sub_id}_{ses_id}_notes", value=sub_note_str)
+
     subject_metrics.append(MetricQC(name="QC_notes", notes=notes))
     # Create QCRecord
     record = QCRecord(
