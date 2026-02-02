@@ -31,7 +31,7 @@ cd /projects/galinejad/tigrbid-QC
 streamlit run ./data/fmriprep/fmriprep_main.py -- --fmri_dir /projects/galinejad/SCanD_CAMH_RTMSWM/share/fmriprep/23.2.3 --participant_labels /projects/galinejad/SCanD_CAMH_RTMSWM/share/participants.tsv --output_dir /projects/galinejad/tigrbid-QC/outputs/RTMSWM_QC/
 ```
 
-4. Run streamlit remotely through ssh tunnel
+5. Run streamlit remotely through ssh tunnel
 ```bash
 ssh -X -L 8501:localhost:8501 ttan@darwin.camhres.ca
 cd /projects/ttan/tigrbid-QC
