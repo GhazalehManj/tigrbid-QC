@@ -28,7 +28,7 @@ streamlit run ./data/fmriprep/fmriprep_main.py -- --fmri_dir /projects/galinejad
 4. Run Noddireg QC dashboard
 ```bash
 cd /projects/galinejad/tigrbid-QC
-streamlit run ./data/fmriprep/fmriprep_main.py -- --fmri_dir /projects/galinejad/SCanD_CAMH_RTMSWM/share/fmriprep/23.2.3 --participant_labels /projects/galinejad/SCanD_CAMH_RTMSWM/share/participants.tsv --output_dir /projects/galinejad/tigrbid-QC/outputs/RTMSWM_QC/
+streamlit run ./data/noddireg/noddi_qc.py --   --noddireg_dir /projects/galinejad/SCanD_CAMH_RTMSWM/share/noddireg    --participant_labels /projects/galinejad/SCanD_CAMH_RTMSWM/share/participants.tsv   --output_dir /projects/galinejad/tigrbid-QC/outputs/RTMSWM_QC/
 ```
 
 5. Run streamlit remotely through ssh tunnel
