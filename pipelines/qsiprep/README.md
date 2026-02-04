@@ -1,0 +1,1 @@
+streamlit run ./qsiprep_qc.py -- --qsiprep_dir /projects/ttan/ASCEND/data/derivatives/fmriprep/23.2.3 --participant_labels /projects/ttan/ASCEND/data/bids/participants.tsv --output_dir /projects/ttan/tigrbid-QC/outputs
