@@ -53,12 +53,6 @@ participant_labels = args.participant_labels
 qsiprep_dir = args.qsiprep_dir
 out_dir = args.out_dir
 
-
-# qsiprep_dir = "/projects/ttan/PSIBD/data/share/qsiprep/0.22.0"
-# participant_labels = "/projects/ttan/PSIBD/data/local/bids/participants.tsv"
-# out_dir = "/projects/ttan/tigrbid-QC/outputs/PSIBD_QC"
-# participants_df = pd.read_csv(participant_labels, delimiter="\t")
-
 st.title("QSIPrep QC")
 rater_name = st.text_input("Rater name:")
 # Show the value dynamically
@@ -287,7 +281,7 @@ total_rows, current_batch = get_current_batch(
 # out_dir = "/projects/ttan/tigrbid-QC/outputs"
 now = datetime.now()
 # timestamp = now.strftime("%Y%m%d")  # e.g., 20250917
-out_file = Path(out_dir) / f"QSIPrep_QC_status_test.csv"
+out_file = Path(out_dir) / f"QSIPrep_QC_status.csv"
 
 def get_metrics_from_csv(qc_results: Path):
     if not qc_results.exists():
