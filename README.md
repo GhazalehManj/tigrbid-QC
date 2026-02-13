@@ -31,6 +31,12 @@ cd /projects/galinejad/tigrbid-QC
 streamlit run ./pipelines/noddireg/noddi_qc.py --   --noddireg_dir /projects/galinejad/SCanD_CAMH_RTMSWM/share/noddireg    --participant_labels /projects/galinejad/SCanD_CAMH_RTMSWM/share/participants.tsv   --output_dir /projects/galinejad/tigrbid-QC/outputs/RTMSWM_QC/
 ```
 
+5. Run QSIPrep QC dashboard
+```bash
+cd /projects/ttan/tigrbid-QC
+streamlit run ./pipelines/qsiprep/qsiprep_qc.py -- --qsiprep_dir /projects/ttan/PSIBD/data/share/qsiprep/0.22.0/ --participant_labels /projects/ttan/PSIBD/data/local/bids/participants.tsv --output_dir /projects/ttan/tigrbid-QC/outputs/PSIBD_QC_13022026
+```
+
 5. Run streamlit remotely through ssh tunnel
 ```bash
 ssh -X -L 8501:localhost:8501 ttan@darwin.camhres.ca
