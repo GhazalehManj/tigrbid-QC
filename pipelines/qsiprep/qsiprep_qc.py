@@ -335,30 +335,6 @@ def get_metrics_from_csv(qc_results: Path):
         if val is not None and not pd.isna(val):
             return val
         return None
-        # keys = [
-        #     # 1. EXACT MATCH (e.g., sub-01, ses-01, task-rest, run-1)
-        #     (s_sub, ses_id, task_id, run_id),
-            
-        #     # 2. TASK/SESSION LEVEL (Ignore Run)
-        #     # Useful if a metric applies to the whole task in this session
-        #     (s_sub, ses_id, task_id, None),
-
-        #     # 3. SESSION LEVEL (Ignore Task & Run)
-        #     # Useful for session notes or session-wide anatomical checks
-        #     (s_sub, ses_id, None, None),
-
-        #     # 4. GLOBAL SUBJECT LEVEL (Ignore Everything)
-        #     # Useful for T1w QC, demographics, etc.
-        #     (s_sub, None, None, None)
-        # ]
-
-        # for key in keys:
-        #     # Look up the dict
-        #     val = data_dict.get(key, {}).get(metric)
-        #     print(val)
-        #     if val is not None and not pd.isna(val):
-        #         return val
-        # return None
     return data_dict, get_val
 
 # Load the existing qc_results if exist
@@ -431,7 +407,6 @@ qc_configs = [
     ("desc-sdc_b0", "Susceptible Distortion Correction", "sdc_qc"),
     ("coreg", "B0 to T1 Coregistration", "b0_2_t1_qc"),
     ("t1_2_mni", "T1 to MNI Coregistration", "t1_2_mni_qc")
-    # (".html", "FieldMap Method", "fieldmap_method")
 ]
 
 for _, row in current_batch.iterrows():
@@ -446,9 +421,6 @@ for _, row in current_batch.iterrows():
 
     # Order Subject-level QC always before session-level QC
     # sorted_keys = sorted(qc_bundles.keys(), key=lambda x: (x.label != "subject-level QC", x.label))
-
-    # 1. Temporary storage to keep bundle metrics separate before saving
-    # temp_bundles_to_save = []
 
     for key in qc_bundles.keys():
         bundle_metrics = []
@@ -468,13 +440,8 @@ for _, row in current_batch.iterrows():
                     subject_metrics=bundle_metrics,
                     ses=ses, task=task, run=run
                 )
-        
-        # Save this bundle's data for Pass 2
-        # temp_bundles_to_save.append({
-        #     "ses": ses, "task": task, "run": run, "metrics": bundle_metrics
-        # })
 
-    # --- 2. Master Verdict: OUTSIDE the sorted_keys loop ---
+        # streamlit UI
         st.divider()
         # st.subheader("Final Subject Verdict")
 
@@ -484,7 +451,10 @@ for _, row in current_batch.iterrows():
         
         options = ("YES", "NO")
 
-        # Note: Unique key using ONLY sub_id to ensure only one radio button exists
+        # Note: Unique key using ONLY subject session task and run to ensure only one radio button exists. 
+        # However, if there is no session task run, it will class with the subject-level key.
+        # Need to consider adding metric_qc into the key.
+
         require_rerun = st.radio(
             "Require rerun?",
             options,
@@ -509,24 +479,6 @@ for _, row in current_batch.iterrows():
             metrics=bundle_metrics,
         )
         qc_records.append(record)
-    # --- 3. Pass 2: Create QCRecords for every bundle found ---
-    # for entry in temp_bundles_to_save:
-    #     # Attach the shared notes to every record
-    #     entry["metrics"].append(MetricQC(name="QC_notes", notes=notes))
-        
-        # record = QCRecord(
-        #     subject_id=sub_id,
-        #     session_id=entry["ses"],
-        #     task_id=entry["task"],
-        #     run_id=entry["run"],
-        #     pipeline="qsiprep-0.22.0",
-        #     complete_timestamp=None,
-        #     rater=rater_name,
-        #     require_rerun=require_rerun,
-        #     final_qc=final_qc,
-        #     metrics=entry["metrics"],
-        # )
-        # qc_records.append(record)
 
 # Pagination Controls - MOVED TO TOP
 bottom_menu = st.columns((1, 2, 1))
