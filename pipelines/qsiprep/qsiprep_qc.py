@@ -53,7 +53,14 @@ participant_labels = args.participant_labels
 qsiprep_dir = args.qsiprep_dir
 out_dir = args.out_dir
 
+# qsiprep_dir = "/projects/aabdulrasul/SPASD/QSIPREP/output/qsiprep"
+# participant_labels = "/projects/ttan/tigrbid-QC/SPASD_participants.tsv"
+# # qsiprep_dir = "/projects/ttan/PSIBD/data/share/qsiprep/0.22.0/"
+# # participant_labels = "/projects/ttan/PSIBD/data/local/bids/participants.tsv"
+# # out_dir = "/projects/ttan/tigrbid-QC/outputs/PSIBD_19022026/"
+# out_dir = "/projects/ttan/tigrbid-QC/outputs/SPASD_QC_19022026"
 participants_df = pd.read_csv(participant_labels, delimiter="\t")
+
 
 st.title("QSIPrep QC")
 rater_name = st.text_input("Rater name:")
@@ -415,20 +422,35 @@ for _, row in current_batch.iterrows():
     html_path = Path(qsiprep_dir) / f"sub-{sub_id}.html"
     fieldmap_methods = extract_fieldmap_method(html_path)
     qc_bundles = collect_subject_qc(Path(qsiprep_dir), sub_id, qc_configs)
-
+    
     # Order Subject-level QC always before session-level QC
     # sorted_keys = sorted(qc_bundles.keys(), key=lambda x: (x.label != "subject-level QC", x.label))
-
+    expected_metrics = {config[2] for config in qc_configs}
+    found_metrics = set()
     for key in qc_bundles.keys():
         bundle_metrics = []
         ses, task, run = key.ses, key.task, key.run
+        # 1. Define what we EXPECT to see in this specific bundle
+        if key.label == "subject-level QC":
+            expected_here = ["segmentation_qc", "t1_2_mni_qc"]
+        else:
+            # Everything else (session, task, or run) expects scan-level files
+            expected_here = ["sdc_qc", "b0_2_t1_qc"]
 
-        for item in qc_bundles[key]:
-                print(ses, task, run)
+        # 2. Map what was actually FOUND for this bundle
+        found_map = {item.metric_name: item for item in qc_bundles[key]}
+
+        # 3. Iterate through the EXPECTED list to catch missing images
+        for metric_id in expected_here:
+            if metric_id in found_map:
+                item = found_map[metric_id]
+                
+                # Logic for SDC fieldmap method
                 if item.metric_name == "sdc_qc":
                     method_value = fieldmap_methods.get(ses) or fieldmap_methods.get("nosession", "UNKNOWN")
                     bundle_metrics.append(MetricQC(name="fieldmap_method", value=method_value))
-                print(f"Displaying :{item.svg_list}")
+
+                # Display the image
                 display_svg_group(
                     svg_list=item.svg_list,
                     sub_id=sub_id,
@@ -437,6 +459,11 @@ for _, row in current_batch.iterrows():
                     subject_metrics=bundle_metrics,
                     ses=ses, task=task, run=run
                 )
+            else:
+                # --- THE CATCH ---
+                # Get the label from qc_configs for the warning
+                pretty_label = next((c[1] for c in qc_configs if c[2] == metric_id), metric_id)
+                st.warning(f"⚠️ **Missing Image:** '{pretty_label}' ({metric_id}) was not found.")
 
         # streamlit UI
         st.divider()
@@ -476,7 +503,12 @@ for _, row in current_batch.iterrows():
             metrics=bundle_metrics,
         )
         qc_records.append(record)
-
+    # missing_configs = expected_metrics - found_metrics
+    # if missing_configs:
+    #     for missing in missing_configs:
+    #         # Find the label from qc_configs for a nicer error message
+    #         label = next(conf[1] for conf in qc_configs if conf[2] == missing)
+    #         st.write(f" [WARNING] QC step '{label}' ({missing}) was not found in the search results.")
 # Pagination Controls - MOVED TO TOP
 bottom_menu = st.columns((1, 2, 1))
 # Update batch size first
