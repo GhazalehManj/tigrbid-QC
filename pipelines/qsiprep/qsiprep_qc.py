@@ -258,17 +258,14 @@ def extract_fieldmap_method(html_path):
 
     for session_id, container in targets:
         # session_id = ses_div["id"]
-
-        h3 = container.find(
-            "h3",
-            class_="elem-title",
-            string=lambda s: s and s.startswith("Susceptibility distortion correction")
+        sdc_li = container.find(
+            "li",
+            string=lambda s: s and "Susceptibility distortion correction" in s
         )
-
-        if h3:
-            # Extract text inside parentheses
-            match = re.search(r"\((.*?)\)", h3.text)
-            method = match.group(1) if match else "UNKNOWN"
+        if sdc_li:
+            text_content = sdc_li.get_text()
+            if ":" in text_content:
+                method = text_content.split(":", 1)[1].strip()
         else:
             method = "NOT FOUND"
 
@@ -425,12 +422,12 @@ for _, row in current_batch.iterrows():
     for key in qc_bundles.keys():
         bundle_metrics = []
         ses, task, run = key.ses, key.task, key.run
-        # Fall-back if no session in qsiprep
-        ses_id = ses if ses else "nosession"
-        if key.label == "session-level QC" and ses in fieldmap_methods:
-            method_value = fieldmap_methods.get(ses_id, "UNKNOWN")
-            bundle_metrics.append(MetricQC(name="fieldmap_method", value=method_value))
+
         for item in qc_bundles[key]:
+                print(ses, task, run)
+                if item.metric_name == "sdc_qc":
+                    method_value = fieldmap_methods.get(ses) or fieldmap_methods.get("nosession", "UNKNOWN")
+                    bundle_metrics.append(MetricQC(name="fieldmap_method", value=method_value))
                 print(f"Displaying :{item.svg_list}")
                 display_svg_group(
                     svg_list=item.svg_list,
