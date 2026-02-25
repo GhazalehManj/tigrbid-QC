@@ -40,6 +40,109 @@ def detect_sessions(subj_dir, subject):
     return sorted(sessions)
 
 
+def do_rerun():
+    if hasattr(st, "rerun"):
+        st.rerun()
+    elif hasattr(st, "experimental_rerun"):
+        st.experimental_rerun()
+    else:
+        st.warning("No rerun function available in this Streamlit version.")
+
+
+# -----------------------------
+# QC radio
+# -----------------------------
+QC_OPTIONS = ["—", "PASS", "FAIL", "UNCERTAIN"]  # "—" means not selected
+
+
+def qc_radio(label: str, key: str):
+    val = st.radio(
+        label,
+        QC_OPTIONS,
+        horizontal=True,
+        key=key,
+        index=QC_OPTIONS.index(st.session_state.get(key, "—")) if st.session_state.get(key, "—") in QC_OPTIONS else 0,
+    )
+    return None if val == "—" else val
+
+
+# -----------------------------
+# Load existing saved QC for subject
+# -----------------------------
+def load_saved_for_subject(out_tsv: Path, subject: str) -> dict:
+    """
+    Returns:
+      saved[session] = {
+        "density_qc": "PASS"/"FAIL"/"UNCERTAIN"/None,
+        "density_comment": "...",
+        "od_qc": ...,
+        "od_comment": ...,
+        "icvf_qc": ...,
+        "icvf_comment": ...,
+        "isovf_qc": ...,
+        "isovf_comment": ...
+      }
+    """
+    if not out_tsv.exists():
+        return {}
+
+    df = pd.read_csv(out_tsv, sep="\t")
+
+    if "participant_id" not in df.columns:
+        return {}
+
+    df = df[df["participant_id"] == subject]
+    if df.empty:
+        return {}
+
+    saved = {}
+    for _, r in df.iterrows():
+        ses = r.get("session")
+        if pd.isna(ses) or ses == "":
+            ses = "no-session"
+
+        def clean(v):
+            if pd.isna(v) or v == "":
+                return None
+            return str(v)
+
+        saved[ses] = {
+            "density_qc": clean(r.get("density_qc")),
+            "density_comment": "" if pd.isna(r.get("density_comment")) else str(r.get("density_comment")),
+            "od_qc": clean(r.get("od_qc")),
+            "od_comment": "" if pd.isna(r.get("od_comment")) else str(r.get("od_comment")),
+            "icvf_qc": clean(r.get("icvf_qc")),
+            "icvf_comment": "" if pd.isna(r.get("icvf_comment")) else str(r.get("icvf_comment")),
+            "isovf_qc": clean(r.get("isovf_qc")),
+            "isovf_comment": "" if pd.isna(r.get("isovf_comment")) else str(r.get("isovf_comment")),
+        }
+
+    return saved
+
+
+# -----------------------------
+# Save helper
+# -----------------------------
+def save_subject_rows(output_dir: Path, subject: str, out_rows: list[dict]):
+    """
+    Save current subject's QC rows to noddi_qc.tsv
+    - overwrites any existing rows for this subject (all sessions)
+    """
+    out_tsv = output_dir / "noddi_qc.tsv"
+    new_df = pd.DataFrame(out_rows)
+
+    if out_tsv.exists():
+        old = pd.read_csv(out_tsv, sep="\t")
+        if "participant_id" in old.columns:
+            old = old[old["participant_id"] != subject]
+        out = pd.concat([old, new_df], ignore_index=True)
+    else:
+        out = new_df
+
+    out.to_csv(out_tsv, sep="\t", index=False, na_rep="")
+    return out_tsv
+
+
 # -----------------------------
 # Streamlit app
 # -----------------------------
@@ -53,15 +156,21 @@ def main():
     participants = load_participants(args.participant_labels)
 
     st.set_page_config(layout="centered")
+    st.markdown('<div id="top_of_page"></div>', unsafe_allow_html=True)
     st.title("AMICO NODDI QC")
 
-    # -----------------------------
-    # Session state: subject index
-    # -----------------------------
+    # Session state
     if "subj_idx" not in st.session_state:
         st.session_state.subj_idx = 0
 
+    # Page jump widget key
+    if "page_jump_widget" not in st.session_state:
+        st.session_state.page_jump_widget = 1
+
+    # Current subject
     subject = participants[st.session_state.subj_idx]
+
+    st.session_state.page_jump_widget = st.session_state.subj_idx + 1
 
     st.sidebar.markdown(f"**Subject {st.session_state.subj_idx + 1} / {len(participants)}**")
     st.sidebar.markdown(f"### {subject}")
@@ -72,10 +181,13 @@ def main():
         return
 
     sessions = detect_sessions(subj_dir, subject)
-
     if not sessions:
         st.warning("No NODDI images found")
         return
+
+    # Load saved values for this subject
+    out_tsv = output_dir / "noddi_qc.tsv"
+    saved = load_saved_for_subject(out_tsv, subject)
 
     out_rows = []
 
@@ -90,9 +202,7 @@ def main():
         # -----------------------------
         st.subheader("Tissue Density (CSF / GM / WM)")
 
-        density_pngs = list(
-            subj_dir.glob(f"{ses_prefix}*_desc-dsegtissue_model-noddi_density.png")
-        )
+        density_pngs = list(subj_dir.glob(f"{ses_prefix}*_desc-dsegtissue_model-noddi_density.png"))
 
         if density_pngs:
             for png in density_pngs:
@@ -101,16 +211,19 @@ def main():
         else:
             st.warning("Density plot not found")
 
-        density_qc = st.radio(
-            "Density QC",
-            ["PASS", "FAIL", "UNCERTAIN"],
-            horizontal=True,
-            key=f"{subject}_{ses}_density_qc",
-        )
+        density_key = f"{subject}_{ses}_density_qc"
+        density_comment_key = f"{subject}_{ses}_density_comment"
+
+        if density_key not in st.session_state:
+            st.session_state[density_key] = saved.get(ses, {}).get("density_qc") or "—"
+        if density_comment_key not in st.session_state:
+            st.session_state[density_comment_key] = saved.get(ses, {}).get("density_comment", "")
+
+        density_qc = qc_radio("Density QC", key=density_key)
 
         density_comment = st.text_area(
             "Density comments",
-            key=f"{subject}_{ses}_density_comment",
+            key=density_comment_key,
         )
 
         st.divider()
@@ -127,11 +240,7 @@ def main():
         for metric in metrics:
             st.markdown(f"**{metric.upper()}**")
 
-            pngs = sorted(
-                subj_dir.glob(
-                    f"{ses_prefix}*_{metric}_qc.png"
-                )
-            )
+            pngs = sorted(subj_dir.glob(f"{ses_prefix}*_{metric}_qc.png"))
 
             if pngs:
                 for png in pngs:
@@ -140,16 +249,23 @@ def main():
             else:
                 st.warning(f"{metric.upper()} QA plot not found")
 
-            metric_qc[metric] = st.radio(
-                f"{metric.upper()} QC",
-                ["PASS", "FAIL", "UNCERTAIN"],
-                horizontal=True,
-                key=f"{subject}_{ses}_{metric}_qc",
-            )
+            # map metric -> saved columns
+            col_qc = {"od_mean": "od_qc", "icvf_mean": "icvf_qc", "isovf_mean": "isovf_qc"}[metric]
+            col_cmt = {"od_mean": "od_comment", "icvf_mean": "icvf_comment", "isovf_mean": "isovf_comment"}[metric]
+
+            mkey = f"{subject}_{ses}_{metric}_qc"
+            ckey = f"{subject}_{ses}_{metric}_comment"
+
+            if mkey not in st.session_state:
+                st.session_state[mkey] = saved.get(ses, {}).get(col_qc) or "—"
+            if ckey not in st.session_state:
+                st.session_state[ckey] = saved.get(ses, {}).get(col_cmt, "")
+
+            metric_qc[metric] = qc_radio(f"{metric.upper()} QC", key=mkey)
 
             metric_comment[metric] = st.text_area(
                 f"{metric.upper()} comments",
-                key=f"{subject}_{ses}_{metric}_comment",
+                key=ckey,
             )
 
             st.divider()
@@ -165,32 +281,71 @@ def main():
                 "icvf_qc": metric_qc["icvf_mean"],
                 "icvf_comment": metric_comment["icvf_mean"],
                 "isovf_qc": metric_qc["isovf_mean"],
-                "isovf_comment": metric_comment["isovf_mean"]
+                "isovf_comment": metric_comment["isovf_mean"],
             }
         )
 
     # -----------------------------
-    # Save + Next
+    # Jump callback (SAVE then jump)
     # -----------------------------
-    if st.button("💾 Save & Next ▶️"):
-        out_tsv = output_dir / "noddi_qc.tsv"
+    def jump_to_page():
+        save_subject_rows(output_dir, subject, out_rows)
+        st.session_state.subj_idx = int(st.session_state.page_jump_widget) - 1
+        do_rerun()
 
-        new_df = pd.DataFrame(out_rows)
+    # -----------------------------
+    # Bottom navigation (Prev/Next SAVE + Page Jump + Top)
+    # -----------------------------
+    st.divider()
+    total_pages = len(participants)
 
-        if out_tsv.exists():
-            old = pd.read_csv(out_tsv, sep="\t")
-            old = old[old.participant_id != subject]
-            out = pd.concat([old, new_df], ignore_index=True)
-        else:
-            out = new_df
+    bottom = st.columns((1.2, 2.4, 2.4, 1.0))
 
-        out.to_csv(out_tsv, sep="\t", index=False)
+    with bottom[0]:
+        st.markdown(f"Page **{st.session_state.subj_idx + 1}** of **{total_pages}**")
 
-        if st.session_state.subj_idx < len(participants) - 1:
-            st.session_state.subj_idx += 1
-            st.experimental_rerun()
-        else:
-            st.success("🎉 All subjects QCed!")
+    with bottom[1]:
+        c1, c2 = st.columns(2, gap="small")
+
+        if c1.button("⬅️ Prev (save)", use_container_width=True):
+            save_subject_rows(output_dir, subject, out_rows)
+            if st.session_state.subj_idx > 0:
+                st.session_state.subj_idx -= 1
+            do_rerun()
+
+        if c2.button("Next (save) ➡️", use_container_width=True):
+            save_subject_rows(output_dir, subject, out_rows)
+            if st.session_state.subj_idx < total_pages - 1:
+                st.session_state.subj_idx += 1
+            do_rerun()
+
+    with bottom[2]:
+        st.number_input(
+            "Go to page",
+            min_value=1,
+            max_value=total_pages,
+            step=1,
+            key="page_jump_widget",
+            on_change=jump_to_page,
+        )
+
+    with bottom[3]:
+        st.markdown(
+            """
+            <a href="#top_of_page">
+                <button style="
+                    background-color: white;
+                    border: 1px solid #d1d5db;
+                    padding: 0.5rem 0.8rem;
+                    border-radius: 0.5rem;
+                    cursor: pointer;
+                    width: 100%;">
+                    ⬆️ Top
+                </button>
+            </a>
+            """,
+            unsafe_allow_html=True,
+        )
 
 
 if __name__ == "__main__":
