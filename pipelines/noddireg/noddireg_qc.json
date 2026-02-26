@@ -1,0 +1,14 @@
+{
+    "density_plot_qc": {
+        "svg_montage_path": "../sample_data/derivatives/noddi_reg/sub-ED01/figures/sub-ED01_ses-01_desc-dsegtissue_model-noddi_density.png"
+    },
+    "parcel_od_qc": {
+        "svg_montage_,path": "../sample_data/derivatives/noddi_reg/sub-ED01/ses-01/dwi/sub-ED01_icvf_mean_qc.png"
+    },
+    "parcel_icvf_qc": {
+        "svg_montage_,path": "../sample_data/derivatives/noddi_reg/sub-ED01/ses-01/dwi/sub-ED01_ses-01_icvf_mean_qc.png"
+    },
+    "parcel_isovf_qc": {
+        "svg_montage_,path": "../sample_data/derivatives/noddi_reg/sub-ED01/ses-01/dwi/sub-ED01_ses-01_icvf_mean_qc.png"
+    }
+}
