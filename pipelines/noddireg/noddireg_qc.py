@@ -9,16 +9,18 @@ if str(UI_DIR) not in sys.path:
 import argparse
 import math
 import re
-from datetime import datetime
-from typing import Dict, Optional, Tuple, List
+from datetime import date
+from typing import Dict, Optional, Tuple, List, Any
 
 import pandas as pd
 import streamlit as st
 from PIL import Image
 
-from models import MetricQC, QCRecord
+from models import MetricQC, QCStatusRow
 
-
+# -----------------------------
+# Args / IO helpers
+# -----------------------------
 def parse_args(args=None):
     parser = argparse.ArgumentParser(description="AMICO NODDI QC")
     parser.add_argument("--noddireg_dir", required=True)
@@ -64,6 +66,9 @@ def get_current_batch(df: pd.DataFrame, current_page: int):
     return total_rows, df.iloc[start_idx:end_idx]
 
 
+# -----------------------------
+# UI helpers
+# -----------------------------
 QC_OPTIONS = ("pass", "fail", "uncertain")
 
 
@@ -89,11 +94,16 @@ def qc_radio(label: str, key: str, stored_val: Optional[str]):
     if stored_val not in QC_OPTIONS:
         stored_val = None
     seed_from_saved(key, stored_val)
-    idx = QC_OPTIONS.index(st.session_state[key]) if st.session_state.get(key) in QC_OPTIONS else None
+    idx = (
+        QC_OPTIONS.index(st.session_state[key])
+        if st.session_state.get(key) in QC_OPTIONS
+        else None
+    )
     return st.radio(label, QC_OPTIONS, key=key, horizontal=True, index=idx)
 
 
-def notes_box(label: str, key: str, stored_val: str):
+def notes_box(label: str, key: str, stored_val: Optional[str]):
+    # notes should be blank if nothing was saved
     stored_val = "" if stored_val is None else str(stored_val)
     seed_from_saved(key, stored_val)
     return st.text_area(label, key=key)
@@ -110,109 +120,211 @@ def compute_overall(metrics: List[MetricQC]) -> Optional[str]:
     return "pass"
 
 
-Key = Tuple[str, Optional[str], str]
+# -----------------------------
+# TSV persistence (qc_status.tsv pattern)
+# -----------------------------
+Key = Tuple[str, Optional[str], Optional[str], Optional[int], str]  # pid, session, acq, run, qc_task
 
 OUTPUT_COLUMNS = [
     "participant_id",
+    "session",
+    "acq",
+    "run",
     "qc_task",
-    "session_id",
-    "task_id",
-    "run_id",
     "rater_id",
-    "final_qc",
+    "score",
     "notes",
+    "timestamp",
 ]
 
 
-def read_existing_csv(out_file: Path) -> pd.DataFrame:
+def _norm_str(x) -> Optional[str]:
+    if x is None:
+        return None
+    if isinstance(x, float) and pd.isna(x):
+        return None
+    s = str(x).strip()
+    return None if s == "" or s.lower() == "none" else s
+
+
+def _norm_int(x) -> Optional[int]:
+    if x is None:
+        return None
+    if isinstance(x, float) and pd.isna(x):
+        return None
+    if isinstance(x, int):
+        return x
+    s = str(x).strip()
+    if s == "" or s.lower() == "none":
+        return None
+    try:
+        return int(float(s))
+    except Exception:
+        return None
+
+
+def _norm_date_str(x) -> Optional[str]:
+    """
+    We store timestamp as YYYY-MM-DD string in TSV.
+    """
+    s = _norm_str(x)
+    if not s:
+        return None
+    return s.split("T")[0].split(" ")[0]
+
+
+def read_existing_tsv(out_file: Path) -> pd.DataFrame:
     if not out_file.exists():
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
+
     try:
-        df = pd.read_csv(out_file)
-        for c in OUTPUT_COLUMNS:
-            if c not in df.columns:
-                df[c] = ""
-        return df[OUTPUT_COLUMNS].copy()
+        df = pd.read_csv(out_file, sep="\t", dtype=str)
     except Exception:
         return pd.DataFrame(columns=OUTPUT_COLUMNS)
 
+    for c in OUTPUT_COLUMNS:
+        if c not in df.columns:
+            df[c] = ""
 
-def build_lookup(out_file: Path) -> Dict[Key, Dict[str, str]]:
-    df = read_existing_csv(out_file)
+    return df[OUTPUT_COLUMNS].copy()
+
+
+def build_lookup(out_file: Path) -> Dict[Key, Dict[str, Any]]:
+    """
+    Lookup used ONLY to seed:
+      - score per qc_task
+      - overall notes (from overall_task row)
+      - rater_id per qc_task
+    """
+    df = read_existing_tsv(out_file)
     if df.empty:
         return {}
-    lookup: Dict[Key, Dict[str, str]] = {}
+
+    lookup: Dict[Key, Dict[str, Any]] = {}
+
     for _, r in df.iterrows():
-        pid = str(r.get("participant_id", ""))
-        ses = r.get("session_id")
-        ses = None if pd.isna(ses) or ses == "" else str(ses)
-        qc_task = str(r.get("qc_task", ""))
-        final_qc = r.get("final_qc")
-        final_qc = None if pd.isna(final_qc) or final_qc == "" else str(final_qc)
-        notes = r.get("notes")
-        notes = "" if pd.isna(notes) else str(notes)
-        rater = r.get("rater_id")
-        rater = "" if pd.isna(rater) else str(rater)
-        lookup[(pid, ses, qc_task)] = {"final_qc": final_qc or "", "notes": notes, "rater_id": rater}
+        pid = _norm_str(r.get("participant_id"))
+        ses = _norm_str(r.get("session"))
+        acq = _norm_str(r.get("acq"))
+        run = _norm_int(r.get("run"))
+        qc_task = _norm_str(r.get("qc_task"))
+        if not pid or not qc_task:
+            continue
+
+        score = _norm_str(r.get("score"))
+        score = score if score in QC_OPTIONS else None
+
+        notes_raw = r.get("notes")
+        notes = "" if notes_raw is None or (isinstance(notes_raw, float) and pd.isna(notes_raw)) else str(notes_raw)
+
+        rater = _norm_str(r.get("rater_id")) or ""
+
+        lookup[(pid, ses, acq, run, qc_task)] = {
+            "score": score,
+            "notes": notes,
+            "rater_id": rater,
+        }
+
     return lookup
 
 
-def lookup_val(lookup: Dict[Key, Dict[str, str]], pid: str, ses: Optional[str], qc_task: str):
-    d = lookup.get((pid, ses, qc_task), {})
-    qc = d.get("final_qc", "")
-    qc = qc if qc in QC_OPTIONS else None
-    notes = d.get("notes", "")
+def lookup_val(
+    lookup: Dict[Key, Dict[str, Any]],
+    pid: str,
+    ses: Optional[str],
+    acq: Optional[str],
+    run: Optional[int],
+    qc_task: str,
+):
+    d = lookup.get((pid, ses, acq, run, qc_task), {})
+    score = d.get("score")
+    score = score if score in QC_OPTIONS else None
+    notes = d.get("notes", "") 
     rater = d.get("rater_id", "")
-    return qc, notes, rater
+    return score, notes, rater
 
 
-def qcrecords_to_clean_df(qc_records: List[QCRecord]) -> pd.DataFrame:
-    df = pd.DataFrame([r.model_dump() for r in qc_records])
+def qcstatusrows_to_df(rows: List[QCStatusRow]) -> pd.DataFrame:
+    if not rows:
+        return pd.DataFrame(columns=OUTPUT_COLUMNS)
+
+    raw = []
+    for r in rows:
+        d = r.model_dump()
+
+        ts = d.get("timestamp")
+        if isinstance(ts, date):
+            d["timestamp"] = ts.isoformat()  # YYYY-MM-DD
+        elif ts is None:
+            d["timestamp"] = ""
+        else:
+            d["timestamp"] = _norm_date_str(ts) or ""
+
+        if d.get("notes") is None:
+            d["notes"] = ""
+
+        raw.append(d)
+
+    df = pd.DataFrame(raw)
+
     for c in OUTPUT_COLUMNS:
         if c not in df.columns:
-            df[c] = None
-    df = df[OUTPUT_COLUMNS].copy()
-    for c in ["session_id", "task_id", "run_id", "rater_id"]:
-        df[c] = df[c].replace({None: "", "None": ""})
-    df["notes"] = df["notes"].replace({None: ""})
-    return df
+            df[c] = ""
+
+    for c in ["participant_id", "session", "acq", "qc_task", "rater_id", "score", "notes", "timestamp"]:
+        df[c] = df[c].fillna("").astype(str)
+
+    if "run" in df.columns:
+        df["run"] = df["run"].replace({"None": "", "nan": ""}).fillna("").astype(str)
+
+    return df[OUTPUT_COLUMNS].copy()
 
 
-def save_records_overwrite_csv(out_file: Path, qc_records: List[QCRecord]) -> Path:
+def save_rows_overwrite_tsv(out_file: Path, new_rows: List[QCStatusRow]) -> Path:
     out_file = Path(out_file)
     out_file.parent.mkdir(parents=True, exist_ok=True)
 
-    old = read_existing_csv(out_file)
-    new_df = qcrecords_to_clean_df(qc_records)
+    old = read_existing_tsv(out_file)
+    new_df = qcstatusrows_to_df(new_rows)
 
     if new_df.empty and old.empty:
-        pd.DataFrame(columns=OUTPUT_COLUMNS).to_csv(out_file, index=False)
+        pd.DataFrame(columns=OUTPUT_COLUMNS).to_csv(out_file, sep="\t", index=False)
         return out_file
 
     if new_df.empty:
-        old.to_csv(out_file, index=False)
+        old.to_csv(out_file, sep="\t", index=False)
         return out_file
 
-    subset = ["participant_id", "session_id", "qc_task"]
+    subset = ["participant_id", "session", "acq", "run", "qc_task"]
 
     def make_key(df: pd.DataFrame) -> pd.Series:
         tmp = df.copy()
-        tmp["session_id"] = tmp["session_id"].fillna("").astype(str)
-        tmp["participant_id"] = tmp["participant_id"].fillna("").astype(str)
-        tmp["qc_task"] = tmp["qc_task"].fillna("").astype(str)
+        for c in subset:
+            if c not in tmp.columns:
+                tmp[c] = ""
+            tmp[c] = tmp[c].fillna("").astype(str)
         return tmp[subset].agg("||".join, axis=1)
 
     new_keys = set(make_key(new_df))
+
     if not old.empty:
         old_keys = make_key(old)
         old = old[~old_keys.isin(new_keys)].copy()
 
     out = pd.concat([old, new_df], ignore_index=True)
-    out = out.sort_values(by=["participant_id", "session_id", "qc_task"]).reset_index(drop=True)
-    out.to_csv(out_file, index=False)
+
+    for c in ["participant_id", "session", "acq", "run", "qc_task"]:
+        if c not in out.columns:
+            out[c] = ""
+    out = out.sort_values(by=["participant_id", "session", "acq", "run", "qc_task"]).reset_index(drop=True)
+
+    out.to_csv(out_file, sep="\t", index=False)
     return out_file
 
 
+# -----------------------------
+# Main app
+# -----------------------------
 def main():
     args = parse_args()
 
@@ -228,7 +340,7 @@ def main():
 
     init_session_state()
 
-    out_file = output_dir / "noddireg_QC_status.csv"
+    out_file = output_dir / "noddireg_qc_status.tsv"
     lookup = build_lookup(out_file)
 
     rater_name = st.text_input("Rater name (optional):", value="")
@@ -237,7 +349,7 @@ def main():
     total_rows, current_batch = get_current_batch(participants_df, st.session_state.current_page)
     total_pages = max(1, math.ceil(total_rows / 1))
 
-    qc_records: List[QCRecord] = []
+    qc_rows: List[QCStatusRow] = []
 
     for _, prow in current_batch.iterrows():
         subject = str(prow["participant_id"])
@@ -260,6 +372,12 @@ def main():
             ses_prefix = f"{subject}_{ses}" if ses != "no-session" else subject
             session_id = None if ses == "no-session" else ses
 
+            acq_id: Optional[str] = None
+            run_id: Optional[int] = None
+
+            metrics_for_overall: List[MetricQC] = []
+
+            # ---- Density ----
             st.subheader("Tissue Density (CSF / GM / WM)")
             density_pngs = list(subj_dir.glob(f"{ses_prefix}*_desc-dsegtissue_model-noddi_density.png"))
             if density_pngs:
@@ -269,39 +387,32 @@ def main():
             else:
                 st.warning("Density plot not found")
 
-            metrics_for_overall: List[MetricQC] = []
-
             density_task = "noddireg_density"
-            stored_qc, stored_notes, stored_rater = lookup_val(lookup, subject, session_id, density_task)
+            stored_score, _, stored_rater = lookup_val(lookup, subject, session_id, acq_id, run_id, density_task)
             effective_rater_id = typed_rater_id if typed_rater_id != "" else stored_rater
 
             density_qc_key = f"{subject}_{ses}_{density_task}_qc"
-            density_notes_key = f"{subject}_{ses}_{density_task}_notes"
+            density_score = qc_radio("Density QC", density_qc_key, stored_score)
 
-            density_qc = qc_radio("Density QC", density_qc_key, stored_qc)
-            density_notes = notes_box("Density comments", density_notes_key, stored_notes)
+            metrics_for_overall.append(MetricQC(name="density", qc=density_score))
 
-            metrics_for_overall.append(MetricQC(name="density", qc=density_qc, notes=density_notes))
-
-            qc_records.append(
-                QCRecord(
-                    qc_task=density_task,
+            qc_rows.append(
+                QCStatusRow(
                     participant_id=subject,
-                    session_id=session_id,
-                    task_id=None,
-                    run_id=None,
-                    pipeline="noddireg",
-                    timestamp=datetime.now().isoformat(timespec="seconds"),
+                    session=session_id,
+                    acq=acq_id,
+                    run=run_id,
+                    qc_task=density_task,
                     rater_id=effective_rater_id,
-                    rater_experience=None,
-                    rater_fatigue=None,
-                    final_qc=density_qc,
-                    notes=density_notes,
+                    score=density_score,
+                    notes=None,
+                    timestamp=date.today(),
                 )
             )
 
             st.divider()
 
+            # ---- Parcel-wise metrics ----
             st.subheader("Parcel-wise NODDI Metrics (Schaefer 4S1056)")
             metric_specs = [
                 ("od_mean", "noddireg_od", "od", "OD"),
@@ -320,67 +431,61 @@ def main():
                 else:
                     st.warning(f"{label} QA plot not found")
 
-                stored_qc_m, stored_notes_m, stored_rater_m = lookup_val(lookup, subject, session_id, qc_task)
+                stored_score_m, _, stored_rater_m = lookup_val(lookup, subject, session_id, acq_id, run_id, qc_task)
                 effective_rater_m = typed_rater_id if typed_rater_id != "" else stored_rater_m
 
                 qc_key = f"{subject}_{ses}_{qc_task}_qc"
-                notes_key = f"{subject}_{ses}_{qc_task}_notes"
+                score_val = qc_radio(f"{label} QC", qc_key, stored_score_m)
 
-                qc_val = qc_radio(f"{label} QC", qc_key, stored_qc_m)
-                notes_val = notes_box(f"{label} comments", notes_key, stored_notes_m)
+                metrics_for_overall.append(MetricQC(name=metric_name, qc=score_val))
 
-                metrics_for_overall.append(MetricQC(name=metric_name, qc=qc_val, notes=notes_val))
-
-                qc_records.append(
-                    QCRecord(
-                        qc_task=qc_task,
+                qc_rows.append(
+                    QCStatusRow(
                         participant_id=subject,
-                        session_id=session_id,
-                        task_id=None,
-                        run_id=None,
-                        pipeline="noddireg",
-                        timestamp=datetime.now().isoformat(timespec="seconds"),
+                        session=session_id,
+                        acq=acq_id,
+                        run=run_id,
+                        qc_task=qc_task,
                         rater_id=effective_rater_m,
-                        rater_experience=None,
-                        rater_fatigue=None,
-                        final_qc=qc_val,
-                        notes=notes_val,
+                        score=score_val,
+                        notes=None,
+                        timestamp=date.today(),
                     )
                 )
 
                 st.divider()
 
+            # ---- Overall (one notes field only) ----
             overall_task = "noddireg_overall"
-            overall_stored_qc, overall_stored_notes, overall_stored_rater = lookup_val(
-                lookup, subject, session_id, overall_task
+            overall_stored_score, overall_stored_notes, overall_stored_rater = lookup_val(
+                lookup, subject, session_id, acq_id, run_id, overall_task
             )
             effective_rater_overall = typed_rater_id if typed_rater_id != "" else overall_stored_rater
 
+            overall_auto = compute_overall(metrics_for_overall)
+            overall_final = overall_auto if overall_auto is not None else overall_stored_score
+
             overall_notes_key = f"{subject}_{ses}_{overall_task}_notes"
             overall_notes = notes_box("Overall notes", overall_notes_key, overall_stored_notes)
+            overall_notes = (overall_notes or "").strip()
+            overall_notes_out = overall_notes if overall_notes != "" else None  # blank by default
 
-            overall_auto = compute_overall(metrics_for_overall)
-            overall_final = overall_auto if overall_auto is not None else overall_stored_qc
-
-            qc_records.append(
-                QCRecord(
-                    qc_task=overall_task,
+            qc_rows.append(
+                QCStatusRow(
                     participant_id=subject,
-                    session_id=session_id,
-                    task_id=None,
-                    run_id=None,
-                    pipeline="noddireg",
-                    timestamp=datetime.now().isoformat(timespec="seconds"),
+                    session=session_id,
+                    acq=acq_id,
+                    run=run_id,
+                    qc_task=overall_task,
                     rater_id=effective_rater_overall,
-                    rater_experience=None,
-                    rater_fatigue=None,
-                    final_qc=overall_final,
-                    notes=overall_notes,
+                    score=overall_final,
+                    notes=overall_notes_out,
+                    timestamp=date.today(),    
                 )
             )
 
     def save_now():
-        save_records_overwrite_csv(out_file, qc_records)
+        save_rows_overwrite_tsv(out_file, qc_rows)
         st.success(f"Saved: {out_file}")
 
     if st.button("💾 Save now"):
@@ -406,10 +511,11 @@ def main():
             max_value=total_pages,
             value=st.session_state.current_page,
             step=1,
+            key="page_jump",
         )
         if new_page != st.session_state.current_page:
             save_now()
-            st.session_state.current_page = new_page
+            st.session_state.current_page = int(new_page)
             do_rerun()
 
         if c3.button("➡️"):
